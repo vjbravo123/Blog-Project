@@ -1,5 +1,5 @@
 import { BlogService } from "@/services/blog.services";
-import BlogWrapper from "./_components/BlogWrapper";
+import BlogWrapper from "../../components/blog/BlogWrapper";
 import { Sparkles } from "lucide-react";
 
 // FIX: Ensure page rebuilds on search param change

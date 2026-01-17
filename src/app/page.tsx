@@ -1,8 +1,8 @@
-import Hero from "@/components/shared/Hero";
-import FeaturedPosts from "@/features/blog/components/FeaturedPosts";
-import RecentPosts from "@/features/blog/components/RecentPosts";
-import CategoryBar from "@/features/blog/components/CategoryBar";
-import NewsletterSection from "@/components/shared/NewsletterSection";
+import Hero from "@/components/Home/Hero";
+import FeaturedPosts from "@/components/blog/FeaturedPosts";
+import RecentPosts from "@/components/blog/RecentPosts";
+import NewsletterSection from "@/components/Home/NewsletterSection";
+import CategoryBar from "@/components/blog/CategoryBar";
 
 type PageProps = {
   searchParams?: Promise<{
@@ -22,7 +22,7 @@ export default async function Home({ searchParams }: PageProps) {
     <>
       <Hero />
       <FeaturedPosts />
-      <CategoryBar />
+      <CategoryBar/>
       <RecentPosts category={category} />
       <NewsletterSection />
     </>

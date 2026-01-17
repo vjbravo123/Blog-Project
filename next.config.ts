@@ -6,7 +6,8 @@ const nextConfig: NextConfig = {
       "images.unsplash.com",
       "i.pravatar.cc",
       "ui-avatars.com",
-      "joshi-blog-bucket.s3.ap-south-1.amazonaws.com", // ✅ S3 bucket
+      "joshi-blog-bucket.s3.ap-south-1.amazonaws.com", 
+      "via.placeholder.com"
     ],
   },
 };

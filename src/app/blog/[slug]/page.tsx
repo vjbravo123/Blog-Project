@@ -7,7 +7,8 @@ import {
   ArrowLeft, Calendar, Share2, Bookmark, User, 
   Twitter, Linkedin, Facebook, Link as LinkIcon, List, Terminal
 } from "lucide-react";
-import ScrollProgress from "./_components/ScrollProgress";
+import ScrollProgress from "../../../components/blog/ScrollProgress";
+import ClientInteractions from "../../../components/blog/ClientInteractions"; // Import the new component
 
 // Force dynamic rendering for Next.js 15
 export const dynamic = "force-dynamic";
@@ -35,28 +36,20 @@ export default async function BlogPostPage(props: PageProps) {
   const post = JSON.parse(JSON.stringify(rawPost));
 
   // --- SAFE IMAGE LOGIC ---
-  
-  // 1. Validate Cover Image (Handle Object vs String)
   let validCoverImage = FALLBACK_IMAGE;
   let coverAlt = post.title;
 
   if (post.coverImage) {
     if (typeof post.coverImage === "string" && post.coverImage.trim() !== "") {
-      // Legacy String Format
       validCoverImage = post.coverImage;
     } else if (typeof post.coverImage === "object" && post.coverImage.url) {
-      // New Object Format
       validCoverImage = post.coverImage.url;
       coverAlt = post.coverImage.alt || post.title;
     }
   }
 
-  // 2. Validate Author Image (Check avatar OR image field)
   const rawAuthorImg = post.author?.avatar || post.author?.image;
-  const validAuthorImage = 
-    (typeof rawAuthorImg === "string" && rawAuthorImg.trim() !== "")
-      ? rawAuthorImg
-      : null; // null will trigger the User Icon fallback in the JSX
+  const validAuthorImage = (typeof rawAuthorImg === "string" && rawAuthorImg.trim() !== "") ? rawAuthorImg : null;
 
   return (
     <>
@@ -78,10 +71,10 @@ export default async function BlogPostPage(props: PageProps) {
             </Link>
 
             <div className="flex items-center gap-2">
-               <span className="text-xs font-medium text-zinc-400 mr-2 hidden md:inline">
-                 {post.readTime || "5"} min read
-               </span>
-               <div className="h-4 w-px bg-zinc-200 dark:bg-zinc-800 hidden md:block mr-2" />
+               {/* --- INSERT CLIENT INTERACTIONS HERE --- */}
+               <ClientInteractions postId={post._id} initialLikes={post.likes || 0} />
+               
+               <div className="h-4 w-px bg-zinc-200 dark:bg-zinc-800 mx-2" />
                <ActionButton icon={Share2} label="Share" />
                <ActionButton icon={Bookmark} label="Save" />
             </div>
@@ -112,7 +105,6 @@ export default async function BlogPostPage(props: PageProps) {
             <div className="flex items-center justify-center gap-4 animate-in fade-in slide-in-from-bottom-6 duration-700 delay-200">
               <div className="flex items-center gap-3 p-1 pr-4 rounded-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800">
                 <div className="relative w-10 h-10 rounded-full overflow-hidden">
-                  {/* SAFE AUTHOR IMAGE CHECK */}
                   {validAuthorImage ? (
                     <Image src={validAuthorImage} alt={post.author?.name || "Author"} fill className="object-cover" />
                   ) : (
@@ -135,7 +127,6 @@ export default async function BlogPostPage(props: PageProps) {
 
           {/* Hero Image */}
           <div className="relative w-full aspect-[16/10] md:aspect-[21/9] rounded-2xl md:rounded-[2.5rem] overflow-hidden shadow-2xl shadow-indigo-900/10 dark:shadow-black/50 mb-16 animate-in fade-in scale-95 duration-1000 delay-300">
-            {/* SAFE COVER IMAGE CHECK */}
             <Image
               src={validCoverImage}
               alt={coverAlt}
@@ -144,7 +135,6 @@ export default async function BlogPostPage(props: PageProps) {
               priority
               sizes="100vw"
             />
-            {/* Gradient Scrim */}
             <div className="absolute inset-0 bg-gradient-to-t from-slate-900/30 to-transparent" />
           </div>
 
@@ -168,27 +158,14 @@ export default async function BlogPostPage(props: PageProps) {
             <div className="lg:col-span-8 lg:col-start-3">
               <div 
                 className="prose prose-lg md:prose-xl dark:prose-invert prose-zinc max-w-none
-                
-                // Headings
                 prose-headings:font-black prose-headings:tracking-tight prose-headings:text-slate-900 dark:prose-headings:text-white
-                
-                // Paragraphs
                 prose-p:text-slate-600 dark:prose-p:text-slate-300 prose-p:leading-8 prose-p:font-normal
-                
-                // Links
                 prose-a:text-indigo-600 prose-a:no-underline prose-a:font-bold hover:prose-a:text-indigo-500 hover:prose-a:underline
-                
-                // Blockquotes (Pro Tips)
                 prose-blockquote:border-l-4 prose-blockquote:border-indigo-500 prose-blockquote:bg-indigo-50/50 dark:prose-blockquote:bg-indigo-900/10 prose-blockquote:py-4 prose-blockquote:px-6 prose-blockquote:rounded-r-xl prose-blockquote:not-italic prose-blockquote:font-medium prose-blockquote:text-slate-700 dark:prose-blockquote:text-slate-200
-                
-                // CODE BLOCKS
                 prose-pre:bg-[#0d1117] prose-pre:text-gray-100 prose-pre:border prose-pre:border-zinc-800 prose-pre:rounded-2xl prose-pre:shadow-2xl prose-pre:p-0
                 prose-code:text-indigo-600 dark:prose-code:text-indigo-400 prose-code:bg-indigo-50 dark:prose-code:bg-indigo-900/20 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:font-mono prose-code:text-[0.9em] prose-code:font-semibold prose-code:before:content-none prose-code:after:content-none
-                
-                // Images
                 prose-img:rounded-[2rem] prose-img:shadow-xl prose-img:border prose-img:border-zinc-100 dark:prose-img:border-zinc-800 prose-img:w-full prose-img:my-8"
               >
-                {/* REMOVED SAMPLE CONTENT GENERATOR: Displays real DB content */}
                 <div dangerouslySetInnerHTML={{ __html: post.content }} />
               </div>
 
@@ -213,7 +190,6 @@ export default async function BlogPostPage(props: PageProps) {
               {/* Author Bio Box */}
               <div className="mt-12 p-8 md:p-10 bg-zinc-50 dark:bg-zinc-900/50 rounded-3xl border border-zinc-100 dark:border-zinc-800 flex flex-col md:flex-row items-center md:items-start gap-6 text-center md:text-left">
                  <div className="relative w-20 h-20 shrink-0 rounded-full overflow-hidden ring-4 ring-white dark:ring-zinc-800 shadow-lg">
-                    {/* SAFE AUTHOR IMAGE CHECK */}
                     {validAuthorImage ? (
                       <Image src={validAuthorImage} alt={post.author?.name || "Author"} fill className="object-cover" />
                     ) : (
@@ -243,7 +219,6 @@ export default async function BlogPostPage(props: PageProps) {
                   <List size={14} /> On this page
                 </div>
                 <ul className="space-y-4 text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                  {/* Static TOC for now, ideally generated from post.content */}
                   <li className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 cursor-pointer">
                     <div className="w-1.5 h-1.5 rounded-full bg-indigo-600" /> Article
                   </li>
@@ -280,4 +255,4 @@ function SocialLink({ icon: Icon }: { icon: any }) {
       <Icon size={16} />
     </button>
   );
-} 
+}

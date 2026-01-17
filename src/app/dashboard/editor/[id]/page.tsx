@@ -1,0 +1,630 @@
+"use client";
+
+import React, { useState, useRef, useEffect, use } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation"; 
+import { 
+  ArrowLeft, Settings, Globe, Image as ImageIcon, 
+  Bold, Italic, Code, Link as LinkIcon, Quote, 
+  Type, Trash2, Plus, Eye, Loader2, X, Save, AlertCircle, Upload
+} from "lucide-react";
+import BlogPostTemplate from "@/components/blog/BlogPostTemplate"; 
+
+// --- TYPES ---
+interface Block { 
+  id: string;
+  type: string;
+  content: string;
+}
+
+// --- HELPERS ---
+const uid = () => Math.random().toString(36).substr(2, 9);
+
+const convertBlocksToHtml = (blocks: Block[]) => {
+  return blocks.map(block => {
+    switch(block.type) {
+      case 'h1': return `<h1>${block.content}</h1>`;
+      case 'h2': return `<h2>${block.content}</h2>`;
+      case 'p': return `<p>${block.content}</p>`;
+      case 'quote': return `<blockquote>${block.content}</blockquote>`;
+      case 'code': return `<pre><code>${block.content.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code></pre>`;
+      case 'image': return `<img src="${block.content}" alt="Blog Image" />`;
+      default: return '';
+    }
+  }).join('');
+};
+
+const parseHtmlToBlocks = (html: string): Block[] => {
+  if (typeof window === "undefined") return [{ id: uid(), type: 'p', content: html }];
+  
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+  const nodes = Array.from(doc.body.children);
+
+  if (nodes.length === 0) return [{ id: uid(), type: 'p', content: html }];
+
+  return nodes.map(node => {
+    let type = 'p';
+    let content = node.innerHTML;
+
+    if (node.tagName === 'H1') type = 'h1';
+    if (node.tagName === 'H2') type = 'h2';
+    if (node.tagName === 'BLOCKQUOTE') type = 'quote';
+    if (node.tagName === 'PRE') {
+      type = 'code';
+      content = node.textContent || ""; 
+    }
+
+    return { id: uid(), type, content };
+  });
+};
+
+export default function EditPostPage({ params }: { params: Promise<{ id: string }> }) {
+  const router = useRouter();
+  
+  // Unwrap params using React.use()
+  const resolvedParams = use(params);
+  const postId = resolvedParams.id;
+
+  // --- STATE ---
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isPreviewMode, setIsPreviewMode] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  
+  // UI State
+  const [activeTab, setActiveTab] = useState("settings");
+  const [isMobileSettingsOpen, setIsMobileSettingsOpen] = useState(false);
+  const [focusedBlockId, setFocusedBlockId] = useState<string | null>(null);
+
+  // Data State
+  const [meta, setMeta] = useState({ 
+    title: "", 
+    slug: "", 
+    excerpt: "",
+    category: "Technology",
+    seoTitle: "",
+    seoDesc: "",
+    coverImage: "",
+    status: "Draft" 
+  });
+
+  const [blocks, setBlocks] = useState<Block[]>([]);
+
+  // Link Tool State
+  const [linkInput, setLinkInput] = useState<{ show: boolean; url: string; text: string; savedSelection: Range | null }>({ 
+    show: false, url: '', text: '', savedSelection: null 
+  });
+
+  // --- IMAGE UPLOAD LOGIC ---
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      // Sets the base64 string. 
+      // The Backend API provided earlier will detect "data:image" and upload to S3.
+      setMeta(prev => ({ ...prev, coverImage: reader.result as string }));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const removeImage = () => {
+    setMeta(prev => ({ ...prev, coverImage: "" }));
+  };
+
+  // --- FETCH DATA ---
+  useEffect(() => {
+    if (!postId) return;
+
+    const fetchPost = async () => {
+      try {
+        console.log(`📡 Fetching post ID: ${postId}`);
+        const res = await fetch(`/api/posts/${postId}`);
+        
+        if (!res.ok) {
+           const errText = await res.text();
+           console.error("❌ API Error:", res.status, errText);
+           throw new Error(`Post not found (${res.status})`);
+        }
+        
+        const data = await res.json();
+        console.log("✅ Post Data Loaded:", data);
+        
+        // Populate Meta
+        setMeta({
+          title: data.title || "",
+          slug: data.slug || "",
+          excerpt: data.subtitle || "",
+          category: data.category || "Technology",
+          seoTitle: data.seo?.metaTitle || "",
+          seoDesc: data.seo?.metaDescription || "",
+          // Handle object structure from DB or plain string
+          coverImage: data.coverImage?.url || data.coverImage || "",
+          status: data.published ? "Published" : "Draft"
+        });
+
+        // Populate Blocks: Handle JSON string or Object
+        let metadata = data.metadata;
+        if (typeof metadata === 'string') {
+          try { metadata = JSON.parse(metadata); } catch(e) { metadata = {}; }
+        }
+
+        if (metadata?.blocks && Array.isArray(metadata.blocks) && metadata.blocks.length > 0) {
+          setBlocks(metadata.blocks);
+        } else if (data.content) {
+          setBlocks(parseHtmlToBlocks(data.content));
+        } else {
+          setBlocks([{ id: uid(), type: 'p', content: '' }]);
+        }
+
+      } catch (error: any) {
+        console.error("❌ Error loading post:", error);
+        setError(error.message);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchPost();
+  }, [postId]);
+
+
+  // --- SAVE / UPDATE LOGIC ---
+  const handleUpdate = async (newStatus?: boolean) => {
+    if (!meta.title) return alert("Please enter a post title.");
+    setIsSaving(true);
+
+    try {
+      const htmlContent = convertBlocksToHtml(blocks);
+      const isPublished = newStatus !== undefined ? newStatus : (meta.status === 'Published');
+
+      const payload = {
+        title: meta.title,
+        slug: meta.slug,
+        subtitle: meta.excerpt,
+        content: htmlContent,
+        category: meta.category,
+        coverImage: meta.coverImage, // Base64 or URL
+        published: isPublished,
+        seo: {
+          metaTitle: meta.seoTitle || meta.title,
+          metaDescription: meta.seoDesc || meta.excerpt,
+        },
+        metadata: {
+          blocks: blocks
+        }
+      };
+
+      console.log("💾 Saving payload:", payload);
+
+      const response = await fetch(`/api/posts/${postId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) throw new Error("Failed to update post");
+
+      const responseData = await response.json();
+      console.log("✅ Save Success:", responseData);
+
+      // If the backend returned a new URL (after S3 upload), update state so we don't re-upload Base64
+      if (responseData.data?.coverImage?.url) {
+        setMeta(prev => ({ ...prev, coverImage: responseData.data.coverImage.url }));
+      }
+
+      setMeta(prev => ({ ...prev, status: isPublished ? "Published" : "Draft" }));
+      alert("Post updated successfully!");
+
+    } catch (error: any) {
+      console.error("❌ Update Error:", error);
+      alert(`Error: ${error.message}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // --- EDITOR ACTIONS ---
+  const addBlock = (type: string) => {
+    const newBlock = { id: uid(), type, content: '' };
+    const index = blocks.findIndex(b => b.id === focusedBlockId);
+    const insertAt = index === -1 ? blocks.length : index + 1;
+    const newBlocks = [...blocks];
+    newBlocks.splice(insertAt, 0, newBlock);
+    setBlocks(newBlocks);
+    setFocusedBlockId(newBlock.id);
+  };
+
+  const updateBlock = (id: string, content: string) => {
+    setBlocks(prev => prev.map(b => b.id === id ? { ...b, content } : b));
+  };
+
+  const deleteBlock = (id: string) => {
+    if (blocks.length <= 1) {
+       updateBlock(id, ''); 
+       return;
+    }
+    setBlocks(prev => prev.filter(b => b.id !== id));
+  };
+
+  const applyFormat = (command: string) => {
+    document.execCommand(command, false);
+    const el = document.querySelector(`[data-block-id="${focusedBlockId}"] [contenteditable]`);
+    if (el) updateBlock(focusedBlockId!, el.innerHTML);
+  };
+
+  // Link Handlers
+  const openLinkInput = (e: React.MouseEvent) => {
+    e.preventDefault(); 
+    const selection = window.getSelection();
+    if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
+      setLinkInput({ show: true, url: '', text: selection.toString(), savedSelection: selection.getRangeAt(0).cloneRange() });
+    } else {
+      alert("Highlight text to link.");
+    }
+  };
+
+  const applyLink = () => {
+    if (linkInput.savedSelection && linkInput.url) {
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(linkInput.savedSelection);
+      document.execCommand('createLink', false, linkInput.url);
+      setLinkInput({ show: false, url: '', text: '', savedSelection: null });
+      const el = document.querySelector(`[data-block-id="${focusedBlockId}"] [contenteditable]`);
+      if (el) updateBlock(focusedBlockId!, el.innerHTML);
+    }
+  };
+
+  // --- RENDER HELPERS ---
+  if (isLoading) {
+    return (
+      <div className="h-screen flex flex-col items-center justify-center bg-[#FAFAFA] dark:bg-[#09090b] text-slate-500">
+        <Loader2 className="h-10 w-10 animate-spin text-indigo-600 mb-4" />
+        <p className="animate-pulse">Loading content...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="h-screen flex flex-col items-center justify-center bg-[#FAFAFA] dark:bg-[#09090b] text-slate-500 gap-4">
+        <AlertCircle className="h-12 w-12 text-rose-500" />
+        <h2 className="text-xl font-bold text-slate-900 dark:text-white">Failed to load post</h2>
+        <p>Post ID: <span className="font-mono bg-slate-200 dark:bg-slate-800 px-1 rounded">{postId}</span></p>
+        <p className="text-sm">{error}</p>
+        <Link href="/dashboard/" className="px-4 py-2 bg-slate-200 dark:bg-zinc-800 rounded-lg hover:bg-slate-300 transition-colors text-sm font-semibold">
+           Return to Dashboard
+        </Link>
+      </div>
+    );
+  }
+
+  if (isPreviewMode) {
+    return (
+      <BlogPostTemplate
+        post={{
+          title: meta.title,
+          content: convertBlocksToHtml(blocks),
+          coverImage: meta.coverImage, 
+          tags: [meta.category],
+          author: { name: "You" },
+          createdAt: new Date(),
+          readTime: 5
+        }}
+        onBack={() => setIsPreviewMode(false)}
+        isPreview={true}
+      />
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-[#FAFAFA] dark:bg-[#09090b] text-slate-900 dark:text-slate-100 font-sans pb-40 antialiased selection:bg-indigo-500/30 transition-colors duration-300">
+      <style jsx global>{`
+        .editable-empty:empty:before { content: attr(data-placeholder); color: #9ca3af; pointer-events: none; display: block; }
+        .editable-empty:focus:before { display: none; }
+        [contenteditable]:focus { outline: none; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      `}</style>
+
+      {/* --- HEADER --- */}
+      <header className="sticky top-0 z-50 bg-white/80 dark:bg-[#09090b]/80 backdrop-blur-xl border-b border-slate-200 dark:border-zinc-800 px-4 lg:px-6 py-3 flex items-center justify-between transition-all">
+        <div className="flex items-center gap-3 lg:gap-4">
+          <Link href="/dashboard/" className="p-2 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg text-slate-500 hover:text-slate-900 dark:hover:text-slate-200 transition-all">
+            <ArrowLeft size={20} />
+          </Link>
+          <div className="flex flex-col">
+             <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">Editing</span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider ${meta.status === 'Published' ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-yellow-100 text-yellow-600 dark:bg-yellow-900/30 dark:text-yellow-400'}`}>
+                  {meta.status}
+                </span>
+             </div>
+             <h1 className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate max-w-[150px] lg:max-w-xs">{meta.title || "Untitled Post"}</h1>
+          </div>
+        </div>
+        
+        <div className="flex gap-2 lg:gap-3">
+          <button onClick={() => setIsMobileSettingsOpen(true)} className="lg:hidden p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg">
+            <Settings size={20} />
+          </button>
+
+          <button onClick={() => setIsPreviewMode(true)} className="hidden md:flex px-4 py-2 text-xs font-bold bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-zinc-700 rounded-lg items-center gap-2 transition-all">
+            <Eye size={16} /> Preview
+          </button>
+          
+          <button 
+            onClick={() => handleUpdate()}
+            disabled={isSaving}
+            className="px-4 lg:px-6 py-2 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-500/20 disabled:opacity-50 disabled:shadow-none rounded-lg flex items-center gap-2 transition-all transform active:scale-95"
+          >
+            {isSaving ? <Loader2 size={16} className="animate-spin" /> : <><Save size={16} /> <span className="hidden sm:inline">Save</span></>}
+          </button>
+        </div>
+      </header>
+
+      {/* --- MAIN LAYOUT --- */}
+      <div className="max-w-[1600px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-0 lg:divide-x divide-slate-200 dark:divide-zinc-800 relative">
+        
+        {/* --- EDITOR CANVAS (Left) --- */}
+        <div className="lg:col-span-8 bg-white dark:bg-[#09090b] min-h-screen flex flex-col items-center relative transition-colors duration-300">
+          
+          {/* TOOLBAR */}
+          <div className="sticky top-20 z-40 my-6 lg:my-8 px-4 w-full flex justify-center">
+            <div className="bg-white/95 dark:bg-zinc-900/95 backdrop-blur border border-slate-200 dark:border-zinc-700 rounded-full shadow-xl shadow-slate-200/50 dark:shadow-black/50 p-1.5 flex items-center gap-1 overflow-x-auto no-scrollbar max-w-full">
+              <ToolbarBtn icon={Bold} onClick={() => applyFormat('bold')} />
+              <ToolbarBtn icon={Italic} onClick={() => applyFormat('italic')} />
+              <div className="w-px h-5 bg-slate-200 dark:bg-zinc-700 mx-1 shrink-0" />
+              <ToolbarBtn icon={Type} label="H1" onClick={() => addBlock('h1')} />
+              <ToolbarBtn icon={Type} label="H2" onClick={() => addBlock('h2')} />
+              <ToolbarBtn icon={Quote} onClick={() => addBlock('quote')} />
+              <ToolbarBtn icon={Code} onClick={() => addBlock('code')} />
+              <div className="relative">
+                <ToolbarBtn icon={LinkIcon} onClick={openLinkInput} active={linkInput.show} />
+                {linkInput.show && (
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 mt-4 w-72 bg-white dark:bg-zinc-900 border dark:border-zinc-700 rounded-xl shadow-2xl p-4 z-50">
+                    <input className="w-full bg-slate-50 dark:bg-zinc-800 border dark:border-zinc-700 rounded p-2 text-sm mb-2 text-slate-800 dark:text-slate-200 placeholder:text-slate-400 focus:ring-2 ring-indigo-500 outline-none" autoFocus placeholder="https://..." value={linkInput.url} onChange={e => setLinkInput({...linkInput, url: e.target.value})} onKeyDown={e => e.key === 'Enter' && applyLink()} />
+                    <button onClick={applyLink} className="w-full bg-indigo-600 text-white text-xs font-bold py-2 rounded hover:bg-indigo-700">Apply</button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* CANVAS CONTENT */}
+          <div className="w-full max-w-3xl px-6 lg:px-16 pb-32 space-y-4">
+             {/* Main Title Input */}
+             <div className="mb-8 group relative">
+                <textarea
+                  className="w-full text-4xl lg:text-5xl font-extrabold text-slate-900 dark:text-white bg-transparent outline-none resize-none overflow-hidden leading-tight placeholder:text-slate-300 dark:placeholder:text-zinc-700"
+                  placeholder="Post Title" 
+                  value={meta.title}
+                  onChange={(e) => {
+                    setMeta({...meta, title: e.target.value});
+                    e.target.style.height = 'auto';
+                    e.target.style.height = e.target.scrollHeight + 'px';
+                  }}
+                  rows={1}
+                  style={{ height: 'auto' }}
+                />
+             </div>
+
+             {/* Blocks */}
+             {blocks.map((block) => (
+               <BlockWrapper key={block.id} block={block} isActive={focusedBlockId === block.id} updateBlock={updateBlock} deleteBlock={deleteBlock} setFocus={setFocusedBlockId} addBlock={addBlock} />
+             ))}
+             
+             {/* Add Block Button */}
+             <div className="mt-16 flex justify-center opacity-40 hover:opacity-100 transition-opacity duration-300 cursor-pointer" onClick={() => addBlock('p')}>
+                <div className="flex items-center gap-2 px-6 py-3 rounded-full border border-dashed border-slate-300 dark:border-zinc-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors">
+                  <Plus size={16} /><span className="text-sm font-semibold">Add Content</span>
+                </div>
+             </div>
+          </div>
+        </div>
+
+        {/* --- SETTINGS SIDEBAR --- */}
+        <div className={`
+            fixed inset-y-0 right-0 w-80 lg:w-auto lg:static lg:col-span-4 bg-white dark:bg-[#0c0c0e] h-full overflow-y-auto border-l border-slate-200 dark:border-zinc-800 z-50 transition-transform duration-300 ease-in-out shadow-2xl lg:shadow-none
+            ${isMobileSettingsOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'}
+        `}>
+            <div className="flex lg:hidden items-center justify-between p-4 border-b border-slate-200 dark:border-zinc-800">
+              <h2 className="font-bold text-lg">Post Settings</h2>
+              <button onClick={() => setIsMobileSettingsOpen(false)} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="flex border-b border-slate-200 dark:border-zinc-800 sticky top-0 bg-white/95 dark:bg-[#0c0c0e]/95 backdrop-blur z-10">
+              <SidebarTab label="Settings" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} icon={Settings} />
+              <SidebarTab label="SEO" active={activeTab === 'seo'} onClick={() => setActiveTab('seo')} icon={Globe} />
+              <SidebarTab label="Media" active={activeTab === 'media'} onClick={() => setActiveTab('media')} icon={ImageIcon} />
+            </div>
+            
+            <div className="p-6 lg:p-8 space-y-8 pb-32">
+              {activeTab === 'settings' && (
+                <>
+                  <Input label="Slug (URL)" value={meta.slug} onChange={(e:any) => setMeta({...meta, slug: e.target.value})} placeholder="my-awesome-post" />
+                  
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Category</label>
+                    <select 
+                      className="w-full bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 ring-indigo-500/20 dark:ring-indigo-500/40"
+                      value={meta.category}
+                      onChange={e => setMeta({...meta, category: e.target.value})}
+                    >
+                      <option>Technology</option>
+                      <option>Design</option>
+                      <option>Lifestyle</option>
+                      <option>Career</option>
+                      <option>AI</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Excerpt</label>
+                    <textarea 
+                      className="w-full bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-lg p-3 text-sm h-32 outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-800 dark:text-slate-200 resize-none" 
+                      value={meta.excerpt} 
+                      onChange={e => setMeta({...meta, excerpt: e.target.value})} 
+                      placeholder="Short summary..."
+                    />
+                  </div>
+                </>
+              )}
+              
+              {activeTab === 'seo' && (
+                <>
+                  <Input label="Meta Title" value={meta.seoTitle} onChange={(e:any) => setMeta({...meta, seoTitle: e.target.value})} placeholder={meta.title} />
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Meta Description</label>
+                    <textarea 
+                      className="w-full bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-lg p-3 text-sm h-32 outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-800 dark:text-slate-200 resize-none" 
+                      value={meta.seoDesc} 
+                      onChange={e => setMeta({...meta, seoDesc: e.target.value})} 
+                      placeholder="SEO Description..."
+                    />
+                  </div>
+                </>
+              )}
+              
+              {activeTab === 'media' && (
+                <div className="space-y-6">
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Cover Image</label>
+                    
+                    {meta.coverImage ? (
+                      <div className="relative w-full aspect-video rounded-xl overflow-hidden border border-slate-200 dark:border-zinc-700 group shadow-sm">
+                        <img src={meta.coverImage} alt="Cover" className="w-full h-full object-cover" />
+                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 backdrop-blur-sm">
+                          <button onClick={removeImage} className="p-2.5 bg-white rounded-full text-red-600 hover:bg-red-50 hover:scale-110 transition-all shadow-lg">
+                            <Trash2 size={20} />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      // --- UPDATED: FILE UPLOAD INPUT ---
+                      <label className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-slate-300 dark:border-zinc-700 rounded-xl cursor-pointer hover:bg-slate-50 dark:hover:bg-zinc-900 hover:border-indigo-400 dark:hover:border-indigo-500 transition-all group">
+                        <div className="p-4 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-full mb-3 group-hover:scale-110 transition-transform">
+                            <Upload size={24} />
+                        </div>
+                        <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">Click to upload image</span>
+                        <span className="text-[11px] text-slate-400 mt-1">PNG, JPG up to 5MB</span>
+                        <input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} />
+                      </label>
+                    )}
+                  </div>
+
+                  <div className="relative py-2">
+                    <div className="absolute inset-0 flex items-center">
+                      <span className="w-full border-t border-slate-200 dark:border-zinc-800" />
+                    </div>
+                    <div className="relative flex justify-center text-xs uppercase">
+                      <span className="bg-white dark:bg-[#0c0c0e] px-2 text-slate-400 font-medium">Or use URL</span>
+                    </div>
+                  </div>
+
+                  <Input 
+                    label="Image URL" 
+                    value={meta.coverImage} 
+                    onChange={(e:any) => setMeta({...meta, coverImage: e.target.value})} 
+                    placeholder="https://example.com/image.jpg" 
+                  />
+                </div>
+              )}
+              
+              <div className="lg:hidden pt-8 border-t border-slate-200 dark:border-zinc-800 space-y-3">
+                 <button onClick={() => handleUpdate(true)} className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl">
+                    Publish Changes
+                 </button>
+                 {meta.status === 'Published' && (
+                   <button onClick={() => handleUpdate(false)} className="w-full py-3 bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 font-bold rounded-xl">
+                      Revert to Draft
+                   </button>
+                 )}
+              </div>
+            </div>
+        </div>
+
+        {isMobileSettingsOpen && (
+          <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setIsMobileSettingsOpen(false)} />
+        )}
+
+      </div>
+    </div>
+  );
+}
+
+// --- SUBCOMPONENTS ---
+
+const BlockWrapper = ({ block, isActive, updateBlock, deleteBlock, setFocus, addBlock }: any) => {
+  let styles = "text-lg text-slate-700 dark:text-slate-300 leading-8 tracking-normal"; 
+  if (block.type === 'h1') styles = "text-3xl lg:text-4xl font-extrabold text-slate-900 dark:text-white leading-tight mb-4 mt-8";
+  if (block.type === 'h2') styles = "text-xl lg:text-2xl font-bold text-slate-800 dark:text-slate-100 mt-8 mb-3";
+  if (block.type === 'quote') styles = "text-xl italic text-slate-600 dark:text-slate-300 border-l-4 border-indigo-500 pl-6 py-2 my-6 bg-slate-50 dark:bg-zinc-900/50 rounded-r-lg";
+  
+  if (block.type === 'code') return (
+      <div className="relative group my-6 bg-[#151515] rounded-xl border border-slate-800 overflow-hidden shadow-xl" onClick={() => setFocus(block.id)}>
+         <div className="flex justify-between items-center px-4 py-2 bg-[#1e1e1e] border-b border-slate-700/50">
+           <div className="flex gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-red-500"/><div className="w-2.5 h-2.5 rounded-full bg-yellow-500"/><div className="w-2.5 h-2.5 rounded-full bg-green-500"/></div>
+           <button onClick={(e) => { e.stopPropagation(); deleteBlock(block.id); }} className="text-slate-500 hover:text-red-400 p-1"><Trash2 size={14}/></button>
+         </div>
+         <EditableContent tagName="pre" html={block.content} className="p-4 font-mono text-sm text-slate-300 outline-none overflow-x-auto" onChange={(h:string) => updateBlock(block.id, h)} onEnter={() => addBlock('p')} onBackspace={() => deleteBlock(block.id)} placeholder="Code..." />
+      </div>
+  );
+
+  return (
+    <div className={`relative group ${isActive ? 'z-10' : ''}`} data-block-id={block.id} onClick={() => setFocus(block.id)}>
+      <div className={`absolute -left-8 lg:-left-12 top-1.5 transition-opacity ${isActive ? 'opacity-100' : 'opacity-0 lg:group-hover:opacity-50'}`}>
+        <button onClick={() => deleteBlock(block.id)} className="p-1.5 text-slate-400 hover:text-red-500 rounded"><Trash2 size={16}/></button>
+      </div>
+      <EditableContent tagName={block.type==='quote'?'blockquote':block.type==='p'?'p':block.type} html={block.content} className={`editable-empty outline-none ${styles}`} onChange={(h:string) => updateBlock(block.id, h)} onEnter={() => addBlock('p')} onBackspace={() => deleteBlock(block.id)} placeholder={block.type === 'p' ? "Write something..." : "Heading"} />
+    </div>
+  );
+};
+
+const EditableContent = ({ tagName, html, className, onChange, onEnter, onBackspace, placeholder }: any) => {
+  const contentRef = useRef<HTMLElement>(null);
+  
+  useEffect(() => {
+    if (contentRef.current && contentRef.current.innerHTML !== html) {
+      contentRef.current.innerHTML = html;
+    }
+  }, [html]);
+
+  return React.createElement(tagName, {
+    ref: contentRef, 
+    className, 
+    contentEditable: true, 
+    suppressContentEditableWarning: true, 
+    "data-placeholder": placeholder,
+    dangerouslySetInnerHTML: { __html: html },
+    onInput: (e: any) => onChange(e.currentTarget.innerHTML),
+    onKeyDown: (e: any) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onEnter(); }
+      if (e.key === 'Backspace' && (!contentRef.current?.innerText || contentRef.current.innerText === '\n')) { onBackspace(); }
+    }
+  });
+};
+
+const Input = ({ label, value, onChange, placeholder }: any) => (
+  <div className="space-y-1.5">
+    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">{label}</label>
+    <input className="w-full bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 ring-indigo-500/20 dark:ring-indigo-500/40 text-slate-800 dark:text-slate-200 transition-all" value={value} onChange={onChange} placeholder={placeholder} />
+  </div>
+);
+
+const ToolbarBtn = ({ icon: Icon, onClick, active, label }: any) => (
+  <button onClick={onClick} className={`shrink-0 p-2 rounded-lg flex gap-1 items-center transition-all ${active ? 'text-indigo-600 bg-indigo-50 dark:bg-indigo-500/10' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-zinc-800'}`}>
+    <Icon size={18} strokeWidth={2.5} /> {label && <span className="text-[11px] font-bold uppercase tracking-wide">{label}</span>}
+  </button>
+);
+
+const SidebarTab = ({ label, active, onClick, icon: Icon }: any) => (
+  <button onClick={onClick} className={`flex-1 py-3.5 flex justify-center items-center gap-2 text-[11px] font-bold uppercase tracking-wider border-b-2 transition-all ${active ? 'text-indigo-600 border-indigo-600 bg-indigo-50/30' : 'text-slate-500 border-transparent hover:bg-slate-50 dark:hover:bg-zinc-800'}`}>
+    <Icon size={15} /> {label}
+  </button>
+);
