@@ -1,9 +1,9 @@
 export default function AdminLayout({
   sidebar,
-  content,
+  overview,
 }: {
   sidebar: React.ReactNode;
-  content: React.ReactNode;
+  overview: React.ReactNode;
 }) {
   return (
     <div className="flex min-h-screen bg-slate-50 dark:bg-black">
@@ -12,7 +12,7 @@ export default function AdminLayout({
 
       {/* SLOT: RIGHT CONTENT */}
       <main className="flex-1 p-4 md:p-8 space-y-8 overflow-y-auto">
-        {content}
+        {overview}
       </main>
     </div>
   );

@@ -1,6 +1,7 @@
+// File: app/api/posts/[id]/view/route.ts
+
 import { NextResponse } from "next/server";
-import dbConnect from "@/lib/db";
-import Blog from "@/models/Blog";
+import { BlogService } from "@/services/blog.services";
 
 export async function POST(
   req: Request,
@@ -8,14 +9,19 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    await dbConnect();
     
-    // FIX: Use 'stats.views' because views is inside the stats object
-    await Blog.findByIdAndUpdate(id, { $inc: { "stats.views": 1 } });
+    // 1. Call Service
+    // We don't necessarily need the return value if just tracking generic hits,
+    // but the service handles the DB connection and logic.
+    await BlogService.incrementViews(id);
     
     return NextResponse.json({ success: true });
+
   } catch (error) {
     console.error("View increment error:", error);
-    return NextResponse.json({ error: "Failed to increment view" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to increment view" }, 
+      { status: 500 }
+    );
   }
 }

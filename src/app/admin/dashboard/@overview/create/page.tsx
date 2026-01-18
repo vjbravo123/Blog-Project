@@ -342,6 +342,7 @@ export default function UltimateCmsEditor() {
         </div>
 
         {/* SETTINGS (Right) */}
+     {/* SETTINGS (Right) */}
         <div className="hidden lg:block lg:col-span-4 bg-white dark:bg-[#0c0c0e] h-full overflow-y-auto border-l border-slate-200 dark:border-zinc-800">
             <div className="flex border-b border-slate-200 dark:border-zinc-800 sticky top-0 bg-white/95 dark:bg-[#0c0c0e]/95 backdrop-blur z-10">
               <SidebarTab label="Settings" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} icon={Settings} />
@@ -353,14 +354,24 @@ export default function UltimateCmsEditor() {
               {activeTab === 'settings' && (
                 <>
                   {/* Title is also mirrored here, but the main editing happens in the canvas now */}
-                  <Input label="Title" value={meta.title} onChange={e => setMeta({...meta, title: e.target.value})} placeholder="Article Title" />
-                  <Input label="Slug" value={meta.slug} onChange={e => setMeta({...meta, slug: e.target.value})} placeholder="custom-slug-url" />
+                  <Input 
+                    label="Title" 
+                    value={meta.title} 
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setMeta({...meta, title: e.target.value})} 
+                    placeholder="Article Title" 
+                  />
+                  <Input 
+                    label="Slug" 
+                    value={meta.slug} 
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setMeta({...meta, slug: e.target.value})} 
+                    placeholder="custom-slug-url" 
+                  />
                   <div className="space-y-1.5">
                     <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Excerpt</label>
                     <textarea 
                       className="w-full bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-lg p-3 text-sm h-32 outline-none focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-indigo-500/40 text-slate-800 dark:text-slate-200 resize-none transition-shadow" 
                       value={meta.excerpt} 
-                      onChange={e => setMeta({...meta, excerpt: e.target.value})} 
+                      onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setMeta({...meta, excerpt: e.target.value})} 
                       placeholder="Write a short summary..."
                     />
                   </div>
@@ -369,13 +380,18 @@ export default function UltimateCmsEditor() {
               
               {activeTab === 'seo' && (
                 <>
-                  <Input label="Meta Title" value={meta.seoTitle} onChange={e => setMeta({...meta, seoTitle: e.target.value})} placeholder="SEO Title" />
+                  <Input 
+                    label="Meta Title" 
+                    value={meta.seoTitle} 
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setMeta({...meta, seoTitle: e.target.value})} 
+                    placeholder="SEO Title" 
+                  />
                   <div className="space-y-1.5">
                     <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Meta Description</label>
                     <textarea 
                       className="w-full bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-lg p-3 text-sm h-32 outline-none focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-indigo-500/40 text-slate-800 dark:text-slate-200 resize-none transition-shadow" 
                       value={meta.seoDesc} 
-                      onChange={e => setMeta({...meta, seoDesc: e.target.value})} 
+                      onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setMeta({...meta, seoDesc: e.target.value})} 
                       placeholder="Description for search engines..."
                     />
                   </div>
@@ -420,7 +436,7 @@ export default function UltimateCmsEditor() {
                   <Input 
                     label="Image URL" 
                     value={meta.coverImage} 
-                    onChange={e => setMeta({...meta, coverImage: e.target.value})} 
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setMeta({...meta, coverImage: e.target.value})} 
                     placeholder="https://example.com/image.jpg" 
                   />
                 </div>
